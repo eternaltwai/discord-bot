@@ -63,6 +63,25 @@ const commands = [
     .setName('랭킹')
     .setDescription('누적 출석 랭킹 Top 10을 보여줍니다.')
     .toJSON(),
+  new SlashCommandBuilder()
+    .setName('청소')
+    .setDescription('최근 메시지를 한 번에 삭제합니다. (관리자 전용)')
+    .addIntegerOption((opt) =>
+      opt
+        .setName('개수')
+        .setDescription('삭제할 메시지 개수 (1~100)')
+        .setRequired(true)
+        .setMinValue(1)
+        .setMaxValue(100)
+    )
+    .addUserOption((opt) =>
+      opt
+        .setName('대상유저')
+        .setDescription('입력하면 이 유저가 보낸 메시지만 삭제해요 (비우면 전체 삭제)')
+        .setRequired(false)
+    )
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
+    .toJSON(),
 ];
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -73,7 +92,7 @@ const rest = new REST({ version: '10' }).setToken(TOKEN);
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
       body: commands,
     });
-    console.log('등록 완료! /이벤트시작, /이벤트종료, /출석체크, /랭킹 를 사용할 수 있어요.');
+    console.log('등록 완료! /이벤트시작, /이벤트종료, /출석체크, /랭킹, /청소 를 사용할 수 있어요.');
   } catch (err) {
     console.error('등록 실패:', err);
   }

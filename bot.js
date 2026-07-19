@@ -14,6 +14,7 @@ const {
   ButtonStyle,
   StringSelectMenuBuilder,
   ChannelType,
+  PermissionsBitField,
 } = require('discord.js');
 
 const TOKEN = process.env.BOT_TOKEN;
@@ -63,7 +64,11 @@ function todayKST() {
 }
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ],
 });
 
 // ── 1. 인증 기능 ──────────────────────────────────────────────────────────
@@ -436,6 +441,34 @@ setInterval(() => {
   }
 }, 15 * 1000);
 
+// ── 5. 청소(메시지 일괄 삭제) 기능 ────────────────────────────────────────
+async function handlePurge(interaction) {
+  const amount = interaction.options.getInteger('개수');
+  const targetUser = interaction.options.getUser('대상유저');
+
+  await interaction.deferReply({ ephemeral: true });
+
+  const fetched = await interaction.channel.messages.fetch({ limit: 100 });
+  let candidates = [...fetched.values()];
+  if (targetUser) {
+    candidates = candidates.filter((m) => m.author.id === targetUser.id);
+  }
+  candidates = candidates.slice(0, amount);
+
+  if (candidates.length === 0) {
+    return interaction.editReply('삭제할 메시지가 없어요.');
+  }
+
+  try {
+    // 두 번째 인자 true: 14일이 지난 메시지는 자동으로 건너뜀 (디스코드 API 제한)
+    const deleted = await interaction.channel.bulkDelete(candidates, true);
+    await interaction.editReply(`🧹 메시지 ${deleted.size}개를 삭제했어요.`);
+  } catch (err) {
+    console.error('메시지 삭제 실패:', err);
+    await interaction.editReply('메시지 삭제 중 오류가 발생했어요. (14일 지난 메시지는 삭제할 수 없어요)');
+  }
+}
+
 // ── 채널 자동 세팅 (봇이 켜질 때 한 번) ─────────────────────────────────────
 async function ensureButtonMessage(guild, keyword, checkComponentId, buildMessage) {
   const channels = await guild.channels.fetch();
@@ -460,6 +493,52 @@ async function ensureButtonMessage(guild, keyword, checkComponentId, buildMessag
   await channel.send(buildMessage());
   console.log(`${guild.name}: #${channel.name} 에 메시지 게시 완료`);
 }
+
+const TEXT_PURGE_PREFIX = '?purge';
+
+client.on('messageCreate', async (message) => {
+  if (message.author.bot || !message.guild) return;
+  if (!message.content.toLowerCase().startsWith(TEXT_PURGE_PREFIX)) return;
+
+  const sendTemp = async (text) => {
+    const notice = await message.channel.send(text);
+    setTimeout(() => notice.delete().catch(() => {}), 5000);
+  };
+
+  if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
+    return sendTemp('메시지 관리 권한이 있어야 이 명령어를 쓸 수 있어요.');
+  }
+
+  const args = message.content
+    .slice(TEXT_PURGE_PREFIX.length)
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const amount = parseInt(args[0], 10);
+
+  if (!Number.isInteger(amount) || amount < 1 || amount > 100) {
+    return sendTemp('사용법: `?purge 개수` (1~100). 예: `?purge 20` / 특정 유저만 지우려면 `?purge 20 @유저`');
+  }
+
+  const targetUser = message.mentions.users.first();
+
+  try {
+    const fetched = await message.channel.messages.fetch({ limit: 100 });
+    let candidates = [...fetched.values()];
+    if (targetUser) {
+      candidates = candidates.filter((m) => m.author.id === targetUser.id);
+    }
+    // amount + 1: 명령어로 친 "?purge ..." 메시지 자신도 함께 삭제
+    candidates = candidates.slice(0, amount + 1);
+
+    const deleted = await message.channel.bulkDelete(candidates, true);
+    const deletedCount = Math.max(deleted.size - 1, 0); // 명령어 메시지 자신은 개수에서 제외하고 안내
+    await sendTemp(`🧹 메시지 ${deletedCount}개를 삭제했어요.`);
+  } catch (err) {
+    console.error('텍스트 청소 실패:', err);
+    await sendTemp('메시지 삭제 중 오류가 발생했어요. (14일 지난 메시지는 삭제할 수 없어요)');
+  }
+});
 
 client.once('ready', async () => {
   console.log(`봇 로그인 완료: ${client.user.tag}`);
@@ -490,6 +569,9 @@ client.on('interactionCreate', async (interaction) => {
       const winnerCountOverride = interaction.options.getInteger('당첨자수');
       await interaction.reply({ content: '이벤트를 종료할게요.', ephemeral: true });
       return finishGiveaway(messageId, winnerCountOverride);
+    }
+    if (interaction.isChatInputCommand() && interaction.commandName === '청소') {
+      return handlePurge(interaction);
     }
     if (interaction.isChatInputCommand() && interaction.commandName === '출석체크') {
       return handleAttendanceCommand(interaction);
