@@ -101,7 +101,12 @@ async function handleAttendanceCommand(interaction) {
   const data = readJson(ATTENDANCE_FILE, {});
   const key = `${interaction.guildId}_${interaction.user.id}`;
   const today = todayKST();
-  const record = data[key] || { lastDate: null, streak: 0, total: 0 };
+  const existing = data[key] || {};
+  const record = {
+    lastDate: existing.lastDate || null,
+    streak: Number.isFinite(existing.streak) ? existing.streak : 0,
+    total: Number.isFinite(existing.total) ? existing.total : 0,
+  };
 
   if (record.lastDate === today) {
     return interaction.reply({
@@ -133,8 +138,8 @@ async function handleRankingCommand(interaction) {
     .filter(([key]) => key.startsWith(prefix))
     .map(([key, record]) => ({
       userId: key.slice(prefix.length),
-      total: record.total || 0,
-      streak: record.streak || 0,
+      total: Number.isFinite(record.total) ? record.total : 0,
+      streak: Number.isFinite(record.streak) ? record.streak : 0,
     }))
     .sort((a, b) => b.total - a.total || b.streak - a.streak)
     .slice(0, 10);
