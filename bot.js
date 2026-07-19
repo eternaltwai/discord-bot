@@ -177,6 +177,35 @@ async function ensureSelfRolesExist(guild) {
   }
 }
 
+async function ensureRolePickerMessage(guild) {
+  const channels = await guild.channels.fetch();
+  const channel = channels.find(
+    (c) => c && c.type === ChannelType.GuildText && c.name.includes(ROLE_PICKER_CHANNEL_KEYWORD)
+  );
+  if (!channel) {
+    console.log(`⚠️ ${guild.name}: "${ROLE_PICKER_CHANNEL_KEYWORD}" 채널을 찾지 못했어요.`);
+    return;
+  }
+
+  const recent = await channel.messages.fetch({ limit: 20 });
+  const existing = recent.find(
+    (m) =>
+      m.author.id === client.user.id &&
+      m.components.length > 0 &&
+      m.components[0].components.some((c) => c.customId === ROLE_SELECT_ID)
+  );
+
+  const payload = buildRolePickerMessage();
+
+  if (existing) {
+    await existing.edit(payload);
+    console.log(`${guild.name}: 역할 선택 메시지를 최신 설정으로 갱신 완료`);
+  } else {
+    await channel.send(payload);
+    console.log(`${guild.name}: #${channel.name} 에 역할 선택 메시지 게시 완료`);
+  }
+}
+
 function buildRolePickerMessage() {
   const embed = new EmbedBuilder()
     .setTitle('🎭 역할 선택')
@@ -422,7 +451,7 @@ client.once('ready', async () => {
     await ensureSelfRolesExist(guild);
     await ensureButtonMessage(guild, VERIFY_CHANNEL_KEYWORD, VERIFY_BUTTON_ID, buildVerifyMessage);
     await ensureAttendanceInfoMessage(guild);
-    await ensureButtonMessage(guild, ROLE_PICKER_CHANNEL_KEYWORD, ROLE_SELECT_ID, buildRolePickerMessage);
+    await ensureRolePickerMessage(guild);
   }
 
   console.log('상시 대기 중... (이 창을 닫으면 봇이 꺼집니다)');
