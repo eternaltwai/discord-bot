@@ -1,0 +1,120 @@
+{
+  "_generator": "디코모아 서버 템플릿 빌더",
+  "_url": "https://dicomoa.com/tools/template",
+  "server": {
+    "name": "내 서버",
+    "verificationLevel": 2,
+    "defaultNotifications": 1,
+    "explicitContentFilter": 1,
+    "systemChannelName": "가입-인사"
+  },
+  "roles": [
+    {
+      "name": "👑 서버장",
+      "color": "#FFD700",
+      "hoist": true,
+      "mentionable": false,
+      "permissions": ["ADMINISTRATOR"],
+      "permissionValue": "8"
+    },
+    {
+      "name": "🛡️ 관리자",
+      "color": "#E74C3C",
+      "hoist": true,
+      "mentionable": false,
+      "permissions": [
+        "MANAGE_GUILD",
+        "MANAGE_ROLES",
+        "MANAGE_CHANNELS",
+        "KICK_MEMBERS",
+        "BAN_MEMBERS",
+        "MANAGE_MESSAGES",
+        "ADMINISTRATOR"
+      ],
+      "permissionValue": "268443710"
+    },
+    {
+      "name": "✅ 인증됨",
+      "color": "#57F287",
+      "hoist": false,
+      "mentionable": false,
+      "permissions": [
+        "VIEW_CHANNEL",
+        "SEND_MESSAGES",
+        "CONNECT",
+        "SPEAK",
+        "ADD_REACTIONS",
+        "EMBED_LINKS",
+        "ATTACH_FILES",
+        "USE_EXTERNAL_EMOJIS"
+      ],
+      "permissionValue": "3460160"
+    },
+    {
+      "name": "🔔 이벤트 알림",
+      "color": "#F1C40F",
+      "hoist": false,
+      "mentionable": true,
+      "permissions": [],
+      "permissionValue": "0"
+    }
+  ],
+  "categories": [
+    {
+      "name": "▸▸ ◈ 🚪 인증 ◈ ◂◂",
+      "gate": "verify",
+      "channels": [
+        { "name": "📜 ‧ 서버-소개", "type": "text", "topic": "서버에 대한 소개입니다. 천천히 읽어보세요!" },
+        { "name": "📋 ‧ 규칙", "type": "text", "topic": "서버 규칙을 반드시 확인해주세요" },
+        { "name": "✅ ‧ 인증", "type": "text", "topic": "규칙을 확인한 후 아래 버튼을 눌러 인증하세요" }
+      ]
+    },
+    {
+      "name": "▸▸ ◈ 📌 안내 ◈ ◂◂",
+      "gate": "main",
+      "channels": [
+        { "name": "📢 ‧ 공지사항", "type": "announcement", "topic": "서버 공지사항" },
+        { "name": "🎭 ‧ 역할-선택", "type": "text", "topic": "원하는 역할을 선택하세요" },
+        { "name": "👋 ‧ 가입-인사", "type": "text", "topic": "가입 인사를 남겨주세요" }
+      ]
+    },
+    {
+      "name": "▸▸ ◈ 💬 소통 ◈ ◂◂",
+      "gate": "main",
+      "channels": [
+        { "name": "💬 ‧ 자유-채팅", "type": "text" },
+        { "name": "📸 ‧ 사진-공유", "type": "text" },
+        { "name": "🎵 ‧ 음악-추천", "type": "text" },
+        { "name": "❓ ‧ 질문-답변", "type": "forum", "topic": "자유롭게 질문하세요" }
+      ]
+    },
+    {
+      "name": "▸▸ ◈ 🌟 커뮤니티 ◈ ◂◂",
+      "gate": "main",
+      "channels": [
+        { "name": "🎁 ‧ 이벤트", "type": "text" },
+        { "name": "✅ ‧ 출석체크", "type": "text" }
+      ]
+    },
+    {
+      "name": "▸▸ ◈ 🔊 음성 ◈ ◂◂",
+      "gate": "main",
+      "channels": [
+        { "name": "◈ 라운지", "type": "voice" },
+        { "name": "◈ 음성채팅 ①", "type": "voice" },
+        { "name": "◈ 음성채팅 ②", "type": "voice" },
+        { "name": "◈ 노래방", "type": "voice" }
+      ]
+    },
+    {
+      "name": "▸▸ ◈ 🔒 관리 ◈ ◂◂",
+      "gate": "staff",
+      "channels": [
+        { "name": "🤖 ‧ 봇-명령어", "type": "text" },
+        { "name": "📩 ‧ 건의사항", "type": "text" },
+        { "name": "📊 ‧ 관리-로그", "type": "text", "topic": "서버 관리 로그" },
+        { "name": "🔒 ‧ 스태프-전용", "type": "text" }
+      ]
+    }
+  ]
+}

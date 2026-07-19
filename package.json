@@ -1,0 +1,15 @@
+{
+  "name": "server-setup-bot",
+  "version": "1.0.0",
+  "description": "디코모아 템플릿 JSON으로 디스코드 서버 구조를 자동 생성하는 스크립트",
+  "main": "setup-server.js",
+  "scripts": {
+    "setup": "node setup-server.js",
+    "reset": "node reset-server.js",
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5"
+  }
+}

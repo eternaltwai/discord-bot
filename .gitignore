@@ -1,0 +1,6 @@
+node_modules/
+.env
+
+# 실행하면서 자동으로 생기는 데이터 파일 (봇이 서버에서 자동 생성함)
+attendance.json
+giveaways.json
