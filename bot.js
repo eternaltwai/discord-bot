@@ -28,6 +28,13 @@ const VERIFY_CHANNEL_KEYWORD = '인증';
 const ATTENDANCE_CHANNEL_KEYWORD = '출석체크';
 const ROLE_PICKER_CHANNEL_KEYWORD = '역할-선택';
 
+// 이벤트(기브어웨이) 명령어를 사용할 수 있는 역할 (template.json의 역할 이름과 동일해야 함)
+const EVENT_MANAGER_ROLE_NAMES = ['🛡️ 관리자', '👑 서버장'];
+
+function hasEventPermission(member) {
+  return member.roles.cache.some((r) => EVENT_MANAGER_ROLE_NAMES.includes(r.name));
+}
+
 const VERIFY_BUTTON_ID = 'verify_click';
 const ROLE_SELECT_ID = 'self_role_select';
 const GIVEAWAY_BUTTON_PREFIX = 'giveaway_join_'; // + 메시지 ID
@@ -310,6 +317,13 @@ function buildGiveawayMessage({ prize, winnerCount, endTime, participantCount, e
 }
 
 async function startGiveaway(interaction) {
+  if (!hasEventPermission(interaction.member)) {
+    return interaction.reply({
+      content: `이벤트는 ${EVENT_MANAGER_ROLE_NAMES.join(' 또는 ')} 역할이 있어야 시작할 수 있어요.`,
+      ephemeral: true,
+    });
+  }
+
   const prize = interaction.options.getString('상품');
   const minutes = interaction.options.getInteger('시간');
   const winnerCount = interaction.options.getInteger('당첨자수') || 1;
@@ -373,11 +387,14 @@ async function handleGiveawayJoin(interaction, messageId) {
   }
 }
 
-async function finishGiveaway(messageId) {
+async function finishGiveaway(messageId, winnerCountOverride) {
   const giveaways = readJson(GIVEAWAY_FILE, {});
   const giveaway = giveaways[messageId];
   if (!giveaway || giveaway.ended) return;
 
+  if (Number.isInteger(winnerCountOverride) && winnerCountOverride > 0) {
+    giveaway.winnerCount = winnerCountOverride;
+  }
   giveaway.ended = true;
   writeJson(GIVEAWAY_FILE, giveaways);
 
@@ -401,7 +418,7 @@ async function finishGiveaway(messageId) {
       await channel.send(`🎉 **${giveaway.prize}** 이벤트가 종료됐지만, 참여자가 없어서 당첨자가 없어요.`);
     } else {
       const mentions = winners.map((id) => `<@${id}>`).join(', ');
-      await channel.send(`🎉 축하합니다! ${mentions} 님이 **${giveaway.prize}** 이벤트에 당첨되셨어요!`);
+      await channel.send(`🎉 축하합니다! ${mentions} 님이 **${giveaway.prize}**에 당첨되셨어요!`);
     }
   } catch (err) {
     console.error('이벤트 종료 처리 실패:', err);
@@ -463,9 +480,16 @@ client.on('interactionCreate', async (interaction) => {
       return startGiveaway(interaction);
     }
     if (interaction.isChatInputCommand() && interaction.commandName === '이벤트종료') {
+      if (!hasEventPermission(interaction.member)) {
+        return interaction.reply({
+          content: `이벤트는 ${EVENT_MANAGER_ROLE_NAMES.join(' 또는 ')} 역할이 있어야 종료할 수 있어요.`,
+          ephemeral: true,
+        });
+      }
       const messageId = interaction.options.getString('메시지id');
+      const winnerCountOverride = interaction.options.getInteger('당첨자수');
       await interaction.reply({ content: '이벤트를 종료할게요.', ephemeral: true });
-      return finishGiveaway(messageId);
+      return finishGiveaway(messageId, winnerCountOverride);
     }
     if (interaction.isChatInputCommand() && interaction.commandName === '출석체크') {
       return handleAttendanceCommand(interaction);

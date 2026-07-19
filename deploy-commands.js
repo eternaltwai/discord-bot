@@ -46,6 +46,13 @@ const commands = [
         .setDescription('종료할 이벤트 메시지의 ID (모르면 이벤트 메시지 우클릭 > ID 복사)')
         .setRequired(true)
     )
+    .addIntegerOption((opt) =>
+      opt
+        .setName('당첨자수')
+        .setDescription('당첨자 수를 지금 바꾸고 싶으면 입력 (안 넣으면 처음 설정값 그대로)')
+        .setRequired(false)
+        .setMinValue(1)
+    )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .toJSON(),
   new SlashCommandBuilder()
