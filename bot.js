@@ -24,11 +24,14 @@ if (!TOKEN) {
 }
 
 // ── 공통 설정 (template.json에서 쓴 이름과 반드시 동일해야 합니다) ──────────
-const VERIFIED_ROLE_NAME = '✅ 인증됨';
+const VERIFIED_ROLE_NAME = '✅ 못난이';
 const VERIFY_CHANNEL_KEYWORD = '인증';
 const ATTENDANCE_CHANNEL_KEYWORD = '출석체크';
 const ROLE_PICKER_CHANNEL_KEYWORD = '역할-선택';
 const WELCOME_CHANNEL_KEYWORD = '가입-인사';
+const TICKET_CHANNEL_KEYWORD = '건의사항';
+const TICKET_OPEN_BUTTON_ID = 'ticket_open';
+const TICKET_CLOSE_BUTTON_ID = 'ticket_close';
 
 // 이벤트(기브어웨이) 명령어를 사용할 수 있는 역할 (template.json의 역할 이름과 동일해야 함)
 const EVENT_MANAGER_ROLE_NAMES = ['🛡️ 관리자', '👑 서버장'];
@@ -471,6 +474,115 @@ async function handlePurge(interaction) {
   }
 }
 
+// ── 6. 건의사항 티켓 기능 ─────────────────────────────────────────────────
+function buildTicketBoardMessage() {
+  const embed = new EmbedBuilder()
+    .setTitle('📩 건의사항 접수')
+    .setDescription('아래 버튼을 누르면 나만 볼 수 있는 비공개 채널이 열려요. 거기에 건의사항을 자유롭게 작성해주세요!')
+    .setColor(0x3498db);
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(TICKET_OPEN_BUTTON_ID)
+      .setLabel('티켓 열기')
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji('📩')
+  );
+  return { embeds: [embed], components: [row] };
+}
+
+async function handleTicketOpen(interaction) {
+  const guild = interaction.guild;
+  const member = interaction.member;
+
+  const channels = await guild.channels.fetch();
+
+  // 이미 열려있는 티켓이 있으면 새로 안 만들고 안내
+  const existing = channels.find(
+    (c) => c && c.type === ChannelType.GuildText && c.topic === `ticket-owner:${member.id}`
+  );
+  if (existing) {
+    return interaction.reply({ content: `이미 열려있는 티켓이 있어요: ${existing}`, ephemeral: true });
+  }
+
+  const suggestionChannel = channels.find(
+    (c) => c && c.type === ChannelType.GuildText && c.name.includes(TICKET_CHANNEL_KEYWORD)
+  );
+
+  const safeName =
+    `건의-${member.user.username}`
+      .toLowerCase()
+      .replace(/[^a-z0-9가-힣-]/g, '')
+      .slice(0, 90) || `건의-${member.id}`;
+
+  const overwrites = [
+    { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+    {
+      id: member.id,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ReadMessageHistory,
+      ],
+    },
+  ];
+  for (const roleName of EVENT_MANAGER_ROLE_NAMES) {
+    const role = guild.roles.cache.find((r) => r.name === roleName);
+    if (role) {
+      overwrites.push({
+        id: role.id,
+        allow: [
+          PermissionsBitField.Flags.ViewChannel,
+          PermissionsBitField.Flags.SendMessages,
+          PermissionsBitField.Flags.ReadMessageHistory,
+        ],
+      });
+    }
+  }
+
+  const ticketChannel = await guild.channels.create({
+    name: safeName,
+    type: ChannelType.GuildText,
+    parent: suggestionChannel ? suggestionChannel.parentId : undefined,
+    topic: `ticket-owner:${member.id}`,
+    permissionOverwrites: overwrites,
+  });
+
+  const embed = new EmbedBuilder()
+    .setTitle('📩 건의사항 티켓')
+    .setDescription(
+      `${member} 님, 여기에 건의하고 싶은 내용을 자유롭게 작성해주세요.\n다 작성하셨으면 아래 버튼으로 티켓을 닫을 수 있어요.`
+    )
+    .setColor(0x3498db);
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(TICKET_CLOSE_BUTTON_ID)
+      .setLabel('티켓 닫기')
+      .setStyle(ButtonStyle.Danger)
+      .setEmoji('🔒')
+  );
+  await ticketChannel.send({ content: `${member}`, embeds: [embed], components: [row] });
+
+  await interaction.reply({ content: `티켓을 열었어요: ${ticketChannel}`, ephemeral: true });
+}
+
+async function handleTicketClose(interaction) {
+  const channel = interaction.channel;
+  const topic = channel.topic || '';
+  const ownerId = topic.startsWith('ticket-owner:') ? topic.slice('ticket-owner:'.length) : null;
+
+  const isOwner = ownerId === interaction.user.id;
+  const isStaff = hasEventPermission(interaction.member);
+
+  if (!isOwner && !isStaff) {
+    return interaction.reply({ content: '티켓을 닫을 권한이 없어요.', ephemeral: true });
+  }
+
+  await interaction.reply('🔒 5초 후 이 티켓을 닫을게요...');
+  setTimeout(() => {
+    channel.delete('티켓 종료').catch((err) => console.error('티켓 삭제 실패:', err));
+  }, 5000);
+}
+
 // ── 채널 자동 세팅 (봇이 켜질 때 한 번) ─────────────────────────────────────
 async function ensureButtonMessage(guild, keyword, checkComponentId, buildMessage) {
   const channels = await guild.channels.fetch();
@@ -566,6 +678,7 @@ client.once('ready', async () => {
   for (const guild of client.guilds.cache.values()) {
     await ensureSelfRolesExist(guild);
     await ensureButtonMessage(guild, VERIFY_CHANNEL_KEYWORD, VERIFY_BUTTON_ID, buildVerifyMessage);
+    await ensureButtonMessage(guild, TICKET_CHANNEL_KEYWORD, TICKET_OPEN_BUTTON_ID, buildTicketBoardMessage);
     await ensureAttendanceInfoMessage(guild);
     await ensureRolePickerMessage(guild);
   }
@@ -598,6 +711,12 @@ client.on('interactionCreate', async (interaction) => {
     }
     if (interaction.isChatInputCommand() && interaction.commandName === '랭킹') {
       return handleRankingCommand(interaction);
+    }
+    if (interaction.isButton() && interaction.customId === TICKET_OPEN_BUTTON_ID) {
+      return handleTicketOpen(interaction);
+    }
+    if (interaction.isButton() && interaction.customId === TICKET_CLOSE_BUTTON_ID) {
+      return handleTicketClose(interaction);
     }
     if (interaction.isButton() && interaction.customId === VERIFY_BUTTON_ID) {
       return handleVerifyClick(interaction);
