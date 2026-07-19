@@ -2,20 +2,20 @@
   {
     "label": "🔔 이벤트 알림",
     "roleName": "🔔 이벤트 알림",
-    "description": "이벤트/공지 알림을 받아요",
+    "description": "서버 이벤트/특수 공지 알림",
     "color": "#F1C40F"
   },
   {
     "label": "🎮 게임",
     "roleName": "🎮 게임",
-    "description": "게임 관련 소식과 파티 모집 알림",
+    "description": "게임 관련 소식 알림",
     "color": "#5865F2"
   },
   {
-    "label": "🎨 아트",
-    "roleName": "🎨 아트",
-    "description": "그림/디자인 관련 소식",
-    "color": "#EB459E"
+    "label": "🎉 파티 모집",
+    "roleName": "🎉 파티 모집",
+    "description": "파티 모집 알림",
+    "color": "#2ECC71"
   },
   {
     "label": "🎵 음악",

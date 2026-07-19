@@ -48,6 +48,14 @@ const commands = [
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .toJSON(),
+  new SlashCommandBuilder()
+    .setName('출석체크')
+    .setDescription('오늘 출석체크를 합니다. (하루 한 번)')
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName('랭킹')
+    .setDescription('누적 출석 랭킹 Top 10을 보여줍니다.')
+    .toJSON(),
 ];
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -58,7 +66,7 @@ const rest = new REST({ version: '10' }).setToken(TOKEN);
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
       body: commands,
     });
-    console.log('등록 완료! /이벤트시작, /이벤트종료 를 사용할 수 있어요.');
+    console.log('등록 완료! /이벤트시작, /이벤트종료, /출석체크, /랭킹 를 사용할 수 있어요.');
   } catch (err) {
     console.error('등록 실패:', err);
   }

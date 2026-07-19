@@ -29,7 +29,6 @@ const ATTENDANCE_CHANNEL_KEYWORD = '출석체크';
 const ROLE_PICKER_CHANNEL_KEYWORD = '역할-선택';
 
 const VERIFY_BUTTON_ID = 'verify_click';
-const ATTENDANCE_BUTTON_ID = 'attendance_click';
 const ROLE_SELECT_ID = 'self_role_select';
 const GIVEAWAY_BUTTON_PREFIX = 'giveaway_join_'; // + 메시지 ID
 
@@ -97,48 +96,65 @@ async function handleVerifyClick(interaction) {
   }
 }
 
-// ── 2. 출석체크 기능 ──────────────────────────────────────────────────────
-function buildAttendanceMessage() {
-  const embed = new EmbedBuilder()
-    .setTitle('✅ 출석체크')
-    .setDescription('아래 버튼을 눌러 하루 한 번 출석체크하세요! 연속 출석일수가 쌓여요 🔥')
-    .setColor(0xf1c40f);
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(ATTENDANCE_BUTTON_ID)
-      .setLabel('출석체크')
-      .setStyle(ButtonStyle.Primary)
-      .setEmoji('📅')
-  );
-  return { embeds: [embed], components: [row] };
-}
-
-async function handleAttendanceClick(interaction) {
+// ── 2. 출석체크 & 랭킹 기능 (슬래시 명령어 기반) ─────────────────────────
+async function handleAttendanceCommand(interaction) {
   const data = readJson(ATTENDANCE_FILE, {});
   const key = `${interaction.guildId}_${interaction.user.id}`;
   const today = todayKST();
-  const record = data[key] || { lastDate: null, streak: 0 };
+  const record = data[key] || { lastDate: null, streak: 0, total: 0 };
 
   if (record.lastDate === today) {
     return interaction.reply({
-      content: `오늘은 이미 출석했어요! (연속 ${record.streak}일째)`,
+      content: `오늘은 이미 출석했어요! (연속 ${record.streak}일째, 누적 ${record.total}회)`,
       ephemeral: true,
     });
   }
 
-  // 어제 출석했으면 연속 기록 +1, 아니면 1로 리셋
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toLocaleDateString('ko-KR', {
     timeZone: 'Asia/Seoul',
   });
   record.streak = record.lastDate === yesterday ? record.streak + 1 : 1;
+  record.total += 1;
   record.lastDate = today;
   data[key] = record;
   writeJson(ATTENDANCE_FILE, data);
 
   await interaction.reply({
-    content: `출석 완료! 🎉 연속 출석 ${record.streak}일째예요.`,
-    ephemeral: true,
+    content: `📅 출석 완료! 연속 ${record.streak}일째 · 누적 ${record.total}회`,
+    ephemeral: false,
   });
+}
+
+async function handleRankingCommand(interaction) {
+  const data = readJson(ATTENDANCE_FILE, {});
+  const prefix = `${interaction.guildId}_`;
+
+  const entries = Object.entries(data)
+    .filter(([key]) => key.startsWith(prefix))
+    .map(([key, record]) => ({
+      userId: key.slice(prefix.length),
+      total: record.total || 0,
+      streak: record.streak || 0,
+    }))
+    .sort((a, b) => b.total - a.total || b.streak - a.streak)
+    .slice(0, 10);
+
+  if (entries.length === 0) {
+    return interaction.reply({ content: '아직 출석 기록이 없어요. `/출석체크`로 첫 기록을 남겨보세요!', ephemeral: true });
+  }
+
+  const medals = ['🥇', '🥈', '🥉'];
+  const lines = entries.map((e, i) => {
+    const rank = medals[i] || `${i + 1}.`;
+    return `${rank} <@${e.userId}> — 누적 ${e.total}회 (연속 ${e.streak}일)`;
+  });
+
+  const embed = new EmbedBuilder()
+    .setTitle('🏆 출석 랭킹 Top 10')
+    .setDescription(lines.join('\n'))
+    .setColor(0xf1c40f);
+
+  await interaction.reply({ embeds: [embed] });
 }
 
 // ── 3. 역할 선택 기능 ─────────────────────────────────────────────────────
@@ -210,6 +226,31 @@ async function handleRoleSelect(interaction) {
     content: parts.length ? parts.join('\n') : '변경 사항이 없어요.',
     ephemeral: true,
   });
+}
+
+async function ensureAttendanceInfoMessage(guild) {
+  const channels = await guild.channels.fetch();
+  const channel = channels.find(
+    (c) => c && c.type === ChannelType.GuildText && c.name.includes(ATTENDANCE_CHANNEL_KEYWORD)
+  );
+  if (!channel) {
+    console.log(`⚠️ ${guild.name}: "${ATTENDANCE_CHANNEL_KEYWORD}" 채널을 찾지 못했어요.`);
+    return;
+  }
+  const recent = await channel.messages.fetch({ limit: 20 });
+  const alreadyPosted = recent.some(
+    (m) => m.author.id === client.user.id && m.embeds[0]?.title === '📅 출석체크 안내'
+  );
+  if (alreadyPosted) {
+    console.log(`${guild.name}: 출석체크 안내 메시지가 이미 있어서 건너뜀`);
+    return;
+  }
+  const embed = new EmbedBuilder()
+    .setTitle('📅 출석체크 안내')
+    .setDescription('`/출석체크` 명령어로 하루 한 번 출석할 수 있어요.\n`/랭킹` 명령어로 누적 출석 순위를 볼 수 있어요!')
+    .setColor(0xf1c40f);
+  await channel.send({ embeds: [embed] });
+  console.log(`${guild.name}: #${channel.name} 에 출석체크 안내 게시 완료`);
 }
 
 // ── 4. 이벤트(기브어웨이) 기능 ────────────────────────────────────────────
@@ -375,7 +416,7 @@ client.once('ready', async () => {
   for (const guild of client.guilds.cache.values()) {
     await ensureSelfRolesExist(guild);
     await ensureButtonMessage(guild, VERIFY_CHANNEL_KEYWORD, VERIFY_BUTTON_ID, buildVerifyMessage);
-    await ensureButtonMessage(guild, ATTENDANCE_CHANNEL_KEYWORD, ATTENDANCE_BUTTON_ID, buildAttendanceMessage);
+    await ensureAttendanceInfoMessage(guild);
     await ensureButtonMessage(guild, ROLE_PICKER_CHANNEL_KEYWORD, ROLE_SELECT_ID, buildRolePickerMessage);
   }
 
@@ -392,11 +433,14 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.reply({ content: '이벤트를 종료할게요.', ephemeral: true });
       return finishGiveaway(messageId);
     }
+    if (interaction.isChatInputCommand() && interaction.commandName === '출석체크') {
+      return handleAttendanceCommand(interaction);
+    }
+    if (interaction.isChatInputCommand() && interaction.commandName === '랭킹') {
+      return handleRankingCommand(interaction);
+    }
     if (interaction.isButton() && interaction.customId === VERIFY_BUTTON_ID) {
       return handleVerifyClick(interaction);
-    }
-    if (interaction.isButton() && interaction.customId === ATTENDANCE_BUTTON_ID) {
-      return handleAttendanceClick(interaction);
     }
     if (interaction.isButton() && interaction.customId.startsWith(GIVEAWAY_BUTTON_PREFIX)) {
       const messageId = interaction.customId.slice(GIVEAWAY_BUTTON_PREFIX.length);
