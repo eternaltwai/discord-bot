@@ -6,6 +6,7 @@
   "scripts": {
     "setup": "node setup-server.js",
     "reset": "node reset-server.js",
+    "deploy": "node deploy-commands.js",
     "start": "node bot.js"
   },
   "dependencies": {

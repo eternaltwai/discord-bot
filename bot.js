@@ -1,10 +1,10 @@
 // bot.js
-// 상시 실행되는 봇 본체입니다. 24시간 켜져 있어야 인증 버튼이 정상 작동합니다.
-// 봇이 켜지면 "인증" 채널을 자동으로 찾아서 인증 버튼 메시지를 스스로 게시합니다.
-// (이미 게시되어 있으면 중복으로 또 올리지 않습니다)
+// 상시 실행되는 봇 본체입니다. 24시간 켜져 있어야 모든 기능이 정상 작동합니다.
 // 실행: node bot.js
 
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const {
   Client,
   GatewayIntentBits,
@@ -12,31 +12,60 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
   ChannelType,
 } = require('discord.js');
 
 const TOKEN = process.env.BOT_TOKEN;
-
 if (!TOKEN) {
   console.error('BOT_TOKEN을 .env 파일에 먼저 설정해주세요.');
   process.exit(1);
 }
 
-// template.json에서 쓴 이름과 반드시 동일해야 합니다.
+// ── 공통 설정 (template.json에서 쓴 이름과 반드시 동일해야 합니다) ──────────
 const VERIFIED_ROLE_NAME = '✅ 인증됨';
-const VERIFY_CHANNEL_KEYWORD = '인증'; // 채널 이름에 이 단어가 들어있으면 인증 채널로 인식
+const VERIFY_CHANNEL_KEYWORD = '인증';
+const ATTENDANCE_CHANNEL_KEYWORD = '출석체크';
+const ROLE_PICKER_CHANNEL_KEYWORD = '역할-선택';
+
 const VERIFY_BUTTON_ID = 'verify_click';
+const ATTENDANCE_BUTTON_ID = 'attendance_click';
+const ROLE_SELECT_ID = 'self_role_select';
+const GIVEAWAY_BUTTON_PREFIX = 'giveaway_join_'; // + 메시지 ID
+
+// ── 파일 기반 저장소 (재시작해도 데이터 유지) ──────────────────────────────
+const DATA_DIR = __dirname;
+const ATTENDANCE_FILE = path.join(DATA_DIR, 'attendance.json');
+const GIVEAWAY_FILE = path.join(DATA_DIR, 'giveaways.json');
+const SELF_ROLES_FILE = path.join(DATA_DIR, 'self-roles.json');
+
+function readJson(filePath, fallback) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch {
+    return fallback;
+  }
+}
+function writeJson(filePath, data) {
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+const selfRolesConfig = readJson(SELF_ROLES_FILE, []);
+
+function todayKST() {
+  return new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
+}
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
 
+// ── 1. 인증 기능 ──────────────────────────────────────────────────────────
 function buildVerifyMessage() {
   const embed = new EmbedBuilder()
     .setTitle('✅ 서버 인증')
     .setDescription('아래 버튼을 눌러 인증을 완료하면 서버의 모든 채널을 볼 수 있어요!')
     .setColor(0x57f287);
-
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(VERIFY_BUTTON_ID)
@@ -44,86 +73,343 @@ function buildVerifyMessage() {
       .setStyle(ButtonStyle.Success)
       .setEmoji('✅')
   );
-
   return { embeds: [embed], components: [row] };
 }
 
-async function ensureVerifyMessage(guild) {
-  // 이름에 "인증"이 들어간 일반 텍스트 채널을 찾음 (카테고리 제외)
-  const channels = await guild.channels.fetch();
-  const verifyChannel = channels.find(
-    (c) =>
-      c &&
-      c.type === ChannelType.GuildText &&
-      c.name.includes(VERIFY_CHANNEL_KEYWORD)
-  );
+async function handleVerifyClick(interaction) {
+  const guild = interaction.guild;
+  const role = guild.roles.cache.find((r) => r.name === VERIFIED_ROLE_NAME);
+  if (!role) {
+    return interaction.reply({
+      content: `'${VERIFIED_ROLE_NAME}' 역할을 찾을 수 없어요. setup-server.js를 먼저 실행했는지 확인해주세요.`,
+      ephemeral: true,
+    });
+  }
+  if (interaction.member.roles.cache.has(role.id)) {
+    return interaction.reply({ content: '이미 인증되어 있어요!', ephemeral: true });
+  }
+  try {
+    await interaction.member.roles.add(role);
+    await interaction.reply({ content: '인증 완료! 이제 서버를 자유롭게 둘러보세요 🎉', ephemeral: true });
+  } catch (err) {
+    console.error('역할 부여 실패:', err);
+    await interaction.reply({ content: '역할 부여 중 문제가 발생했어요. 봇 권한을 확인해주세요.', ephemeral: true });
+  }
+}
 
-  if (!verifyChannel) {
-    console.log(`⚠️ ${guild.name}: "${VERIFY_CHANNEL_KEYWORD}" 채널을 찾지 못했어요.`);
-    return;
+// ── 2. 출석체크 기능 ──────────────────────────────────────────────────────
+function buildAttendanceMessage() {
+  const embed = new EmbedBuilder()
+    .setTitle('✅ 출석체크')
+    .setDescription('아래 버튼을 눌러 하루 한 번 출석체크하세요! 연속 출석일수가 쌓여요 🔥')
+    .setColor(0xf1c40f);
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(ATTENDANCE_BUTTON_ID)
+      .setLabel('출석체크')
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji('📅')
+  );
+  return { embeds: [embed], components: [row] };
+}
+
+async function handleAttendanceClick(interaction) {
+  const data = readJson(ATTENDANCE_FILE, {});
+  const key = `${interaction.guildId}_${interaction.user.id}`;
+  const today = todayKST();
+  const record = data[key] || { lastDate: null, streak: 0 };
+
+  if (record.lastDate === today) {
+    return interaction.reply({
+      content: `오늘은 이미 출석했어요! (연속 ${record.streak}일째)`,
+      ephemeral: true,
+    });
   }
 
-  // 이미 봇이 인증 버튼 메시지를 올려놨는지 확인 (중복 게시 방지)
-  const recentMessages = await verifyChannel.messages.fetch({ limit: 20 });
-  const alreadyPosted = recentMessages.some(
+  // 어제 출석했으면 연속 기록 +1, 아니면 1로 리셋
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toLocaleDateString('ko-KR', {
+    timeZone: 'Asia/Seoul',
+  });
+  record.streak = record.lastDate === yesterday ? record.streak + 1 : 1;
+  record.lastDate = today;
+  data[key] = record;
+  writeJson(ATTENDANCE_FILE, data);
+
+  await interaction.reply({
+    content: `출석 완료! 🎉 연속 출석 ${record.streak}일째예요.`,
+    ephemeral: true,
+  });
+}
+
+// ── 3. 역할 선택 기능 ─────────────────────────────────────────────────────
+async function ensureSelfRolesExist(guild) {
+  for (const entry of selfRolesConfig) {
+    const existing = guild.roles.cache.find((r) => r.name === entry.roleName);
+    if (!existing) {
+      await guild.roles.create({
+        name: entry.roleName,
+        color: entry.color,
+        mentionable: true,
+      });
+      console.log(`자율 역할 생성: ${entry.roleName}`);
+    }
+  }
+}
+
+function buildRolePickerMessage() {
+  const embed = new EmbedBuilder()
+    .setTitle('🎭 역할 선택')
+    .setDescription('아래 메뉴에서 원하는 역할을 선택/해제할 수 있어요. (다중 선택 가능)')
+    .setColor(0x9b59b6);
+
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(ROLE_SELECT_ID)
+    .setPlaceholder('역할을 선택하세요')
+    .setMinValues(0)
+    .setMaxValues(selfRolesConfig.length)
+    .addOptions(
+      selfRolesConfig.map((entry) => ({
+        label: entry.label,
+        value: entry.roleName,
+        description: entry.description || undefined,
+      }))
+    );
+
+  const row = new ActionRowBuilder().addComponents(menu);
+  return { embeds: [embed], components: [row] };
+}
+
+async function handleRoleSelect(interaction) {
+  const guild = interaction.guild;
+  const member = interaction.member;
+  const selected = new Set(interaction.values);
+
+  const added = [];
+  const removed = [];
+
+  for (const entry of selfRolesConfig) {
+    const role = guild.roles.cache.find((r) => r.name === entry.roleName);
+    if (!role) continue;
+
+    const hasRole = member.roles.cache.has(role.id);
+    const wantsRole = selected.has(entry.roleName);
+
+    if (wantsRole && !hasRole) {
+      await member.roles.add(role);
+      added.push(entry.label);
+    } else if (!wantsRole && hasRole) {
+      await member.roles.remove(role);
+      removed.push(entry.label);
+    }
+  }
+
+  const parts = [];
+  if (added.length) parts.push(`추가됨: ${added.join(', ')}`);
+  if (removed.length) parts.push(`제거됨: ${removed.join(', ')}`);
+  await interaction.reply({
+    content: parts.length ? parts.join('\n') : '변경 사항이 없어요.',
+    ephemeral: true,
+  });
+}
+
+// ── 4. 이벤트(기브어웨이) 기능 ────────────────────────────────────────────
+function buildGiveawayMessage({ prize, winnerCount, endTime, participantCount, ended }) {
+  const embed = new EmbedBuilder()
+    .setTitle(ended ? '🎉 이벤트 종료' : '🎉 이벤트 참여')
+    .setDescription(
+      `**상품:** ${prize}\n**당첨자 수:** ${winnerCount}명\n**참여자 수:** ${participantCount}명\n` +
+        (ended
+          ? '이벤트가 종료되었어요.'
+          : `<t:${Math.floor(endTime / 1000)}:R> 에 마감돼요. 아래 버튼을 눌러 참여하세요!`)
+    )
+    .setColor(ended ? 0x99aab5 : 0xe91e63);
+
+  const button = new ButtonBuilder()
+    .setCustomId(`${GIVEAWAY_BUTTON_PREFIX}placeholder`)
+    .setLabel('참여하기')
+    .setStyle(ButtonStyle.Success)
+    .setEmoji('🎉')
+    .setDisabled(ended);
+
+  return { embeds: [embed], components: [new ActionRowBuilder().addComponents(button)] };
+}
+
+async function startGiveaway(interaction) {
+  const prize = interaction.options.getString('상품');
+  const minutes = interaction.options.getInteger('시간');
+  const winnerCount = interaction.options.getInteger('당첨자수') || 1;
+  const endTime = Date.now() + minutes * 60 * 1000;
+
+  const payload = buildGiveawayMessage({ prize, winnerCount, endTime, participantCount: 0, ended: false });
+  await interaction.reply({ content: '이벤트를 시작할게요!', ephemeral: true });
+  const message = await interaction.channel.send(payload);
+
+  // 버튼 customId에 실제 메시지 ID를 넣어서 재생성
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${GIVEAWAY_BUTTON_PREFIX}${message.id}`)
+      .setLabel('참여하기')
+      .setStyle(ButtonStyle.Success)
+      .setEmoji('🎉')
+  );
+  await message.edit({ components: [row] });
+
+  const giveaways = readJson(GIVEAWAY_FILE, {});
+  giveaways[message.id] = {
+    channelId: interaction.channelId,
+    guildId: interaction.guildId,
+    prize,
+    winnerCount,
+    endTime,
+    participants: [],
+    ended: false,
+  };
+  writeJson(GIVEAWAY_FILE, giveaways);
+}
+
+async function handleGiveawayJoin(interaction, messageId) {
+  const giveaways = readJson(GIVEAWAY_FILE, {});
+  const giveaway = giveaways[messageId];
+  if (!giveaway || giveaway.ended) {
+    return interaction.reply({ content: '이미 종료된 이벤트예요.', ephemeral: true });
+  }
+  if (giveaway.participants.includes(interaction.user.id)) {
+    return interaction.reply({ content: '이미 참여했어요!', ephemeral: true });
+  }
+  giveaway.participants.push(interaction.user.id);
+  writeJson(GIVEAWAY_FILE, giveaways);
+
+  await interaction.reply({ content: '참여 완료! 결과를 기다려주세요 🎉', ephemeral: true });
+
+  // 참여자 수 갱신을 위해 원본 메시지 임베드 업데이트
+  try {
+    const channel = await client.channels.fetch(giveaway.channelId);
+    const message = await channel.messages.fetch(messageId);
+    const payload = buildGiveawayMessage({
+      prize: giveaway.prize,
+      winnerCount: giveaway.winnerCount,
+      endTime: giveaway.endTime,
+      participantCount: giveaway.participants.length,
+      ended: false,
+    });
+    await message.edit({ embeds: payload.embeds });
+  } catch (err) {
+    console.error('이벤트 메시지 갱신 실패:', err);
+  }
+}
+
+async function finishGiveaway(messageId) {
+  const giveaways = readJson(GIVEAWAY_FILE, {});
+  const giveaway = giveaways[messageId];
+  if (!giveaway || giveaway.ended) return;
+
+  giveaway.ended = true;
+  writeJson(GIVEAWAY_FILE, giveaways);
+
+  try {
+    const channel = await client.channels.fetch(giveaway.channelId);
+    const message = await channel.messages.fetch(messageId);
+
+    const payload = buildGiveawayMessage({
+      prize: giveaway.prize,
+      winnerCount: giveaway.winnerCount,
+      endTime: giveaway.endTime,
+      participantCount: giveaway.participants.length,
+      ended: true,
+    });
+    await message.edit(payload);
+
+    const shuffled = [...giveaway.participants].sort(() => Math.random() - 0.5);
+    const winners = shuffled.slice(0, giveaway.winnerCount);
+
+    if (winners.length === 0) {
+      await channel.send(`🎉 **${giveaway.prize}** 이벤트가 종료됐지만, 참여자가 없어서 당첨자가 없어요.`);
+    } else {
+      const mentions = winners.map((id) => `<@${id}>`).join(', ');
+      await channel.send(`🎉 축하합니다! ${mentions} 님이 **${giveaway.prize}** 이벤트에 당첨되셨어요!`);
+    }
+  } catch (err) {
+    console.error('이벤트 종료 처리 실패:', err);
+  }
+}
+
+// 주기적으로 마감 시간이 지난 이벤트를 확인해서 자동 종료
+setInterval(() => {
+  const giveaways = readJson(GIVEAWAY_FILE, {});
+  const now = Date.now();
+  for (const [messageId, g] of Object.entries(giveaways)) {
+    if (!g.ended && g.endTime <= now) {
+      finishGiveaway(messageId);
+    }
+  }
+}, 15 * 1000);
+
+// ── 채널 자동 세팅 (봇이 켜질 때 한 번) ─────────────────────────────────────
+async function ensureButtonMessage(guild, keyword, checkComponentId, buildMessage) {
+  const channels = await guild.channels.fetch();
+  const channel = channels.find(
+    (c) => c && c.type === ChannelType.GuildText && c.name.includes(keyword)
+  );
+  if (!channel) {
+    console.log(`⚠️ ${guild.name}: "${keyword}" 채널을 찾지 못했어요.`);
+    return;
+  }
+  const recent = await channel.messages.fetch({ limit: 20 });
+  const alreadyPosted = recent.some(
     (m) =>
       m.author.id === client.user.id &&
       m.components.length > 0 &&
-      m.components[0].components.some((c) => c.customId === VERIFY_BUTTON_ID)
+      m.components[0].components.some((c) => c.customId && c.customId.startsWith(checkComponentId))
   );
-
   if (alreadyPosted) {
-    console.log(`${guild.name}: 인증 메시지가 이미 있어서 건너뜀`);
+    console.log(`${guild.name}: "${keyword}" 메시지가 이미 있어서 건너뜀`);
     return;
   }
-
-  await verifyChannel.send(buildVerifyMessage());
-  console.log(`${guild.name}: #${verifyChannel.name} 에 인증 메시지 게시 완료`);
+  await channel.send(buildMessage());
+  console.log(`${guild.name}: #${channel.name} 에 메시지 게시 완료`);
 }
 
 client.once('ready', async () => {
   console.log(`봇 로그인 완료: ${client.user.tag}`);
 
   for (const guild of client.guilds.cache.values()) {
-    await ensureVerifyMessage(guild);
+    await ensureSelfRolesExist(guild);
+    await ensureButtonMessage(guild, VERIFY_CHANNEL_KEYWORD, VERIFY_BUTTON_ID, buildVerifyMessage);
+    await ensureButtonMessage(guild, ATTENDANCE_CHANNEL_KEYWORD, ATTENDANCE_BUTTON_ID, buildAttendanceMessage);
+    await ensureButtonMessage(guild, ROLE_PICKER_CHANNEL_KEYWORD, ROLE_SELECT_ID, buildRolePickerMessage);
   }
 
   console.log('상시 대기 중... (이 창을 닫으면 봇이 꺼집니다)');
 });
 
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isButton() || interaction.customId !== VERIFY_BUTTON_ID) return;
-
-  const guild = interaction.guild;
-  const role = guild.roles.cache.find((r) => r.name === VERIFIED_ROLE_NAME);
-
-  if (!role) {
-    await interaction.reply({
-      content: `'${VERIFIED_ROLE_NAME}' 역할을 서버에서 찾을 수 없어요. setup-server.js를 먼저 실행했는지 확인해주세요.`,
-      ephemeral: true,
-    });
-    return;
-  }
-
-  const member = interaction.member;
-
-  if (member.roles.cache.has(role.id)) {
-    await interaction.reply({ content: '이미 인증되어 있어요!', ephemeral: true });
-    return;
-  }
-
   try {
-    await member.roles.add(role);
-    await interaction.reply({
-      content: '인증 완료! 이제 서버를 자유롭게 둘러보세요 🎉',
-      ephemeral: true,
-    });
+    if (interaction.isChatInputCommand() && interaction.commandName === '이벤트시작') {
+      return startGiveaway(interaction);
+    }
+    if (interaction.isChatInputCommand() && interaction.commandName === '이벤트종료') {
+      const messageId = interaction.options.getString('메시지id');
+      await interaction.reply({ content: '이벤트를 종료할게요.', ephemeral: true });
+      return finishGiveaway(messageId);
+    }
+    if (interaction.isButton() && interaction.customId === VERIFY_BUTTON_ID) {
+      return handleVerifyClick(interaction);
+    }
+    if (interaction.isButton() && interaction.customId === ATTENDANCE_BUTTON_ID) {
+      return handleAttendanceClick(interaction);
+    }
+    if (interaction.isButton() && interaction.customId.startsWith(GIVEAWAY_BUTTON_PREFIX)) {
+      const messageId = interaction.customId.slice(GIVEAWAY_BUTTON_PREFIX.length);
+      return handleGiveawayJoin(interaction, messageId);
+    }
+    if (interaction.isStringSelectMenu() && interaction.customId === ROLE_SELECT_ID) {
+      return handleRoleSelect(interaction);
+    }
   } catch (err) {
-    console.error('역할 부여 실패:', err);
-    await interaction.reply({
-      content: '역할 부여 중 문제가 발생했어요. 봇 권한(역할 관리)을 확인해주세요.',
-      ephemeral: true,
-    });
+    console.error('interaction 처리 중 오류:', err);
+    if (interaction.isRepliable() && !interaction.replied) {
+      await interaction.reply({ content: '처리 중 오류가 발생했어요.', ephemeral: true }).catch(() => {});
+    }
   }
 });
 
