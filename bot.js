@@ -28,6 +28,7 @@ const VERIFIED_ROLE_NAME = '✅ 인증됨';
 const VERIFY_CHANNEL_KEYWORD = '인증';
 const ATTENDANCE_CHANNEL_KEYWORD = '출석체크';
 const ROLE_PICKER_CHANNEL_KEYWORD = '역할-선택';
+const WELCOME_CHANNEL_KEYWORD = '가입-인사';
 
 // 이벤트(기브어웨이) 명령어를 사용할 수 있는 역할 (template.json의 역할 이름과 동일해야 함)
 const EVENT_MANAGER_ROLE_NAMES = ['🛡️ 관리자', '👑 서버장'];
@@ -68,6 +69,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers,
   ],
 });
 
@@ -537,6 +539,24 @@ client.on('messageCreate', async (message) => {
   } catch (err) {
     console.error('텍스트 청소 실패:', err);
     await sendTemp('메시지 삭제 중 오류가 발생했어요. (14일 지난 메시지는 삭제할 수 없어요)');
+  }
+});
+
+client.on('guildMemberAdd', async (member) => {
+  try {
+    const channels = await member.guild.channels.fetch();
+    const channel = channels.find(
+      (c) => c && c.type === ChannelType.GuildText && c.name.includes(WELCOME_CHANNEL_KEYWORD)
+    );
+    if (!channel) {
+      console.log(`⚠️ ${member.guild.name}: "${WELCOME_CHANNEL_KEYWORD}" 채널을 찾지 못했어요.`);
+      return;
+    }
+    await channel.send(
+      `🎉 ${member}님, 못난이수용소에 오신 것을 환영합니다! 인증 채널에서 인증부터 해주시면 서버를 자유롭게 이용하실 수 있어요.`
+    );
+  } catch (err) {
+    console.error('가입 인사 메시지 전송 실패:', err);
   }
 });
 
