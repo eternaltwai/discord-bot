@@ -24,7 +24,7 @@ if (!TOKEN) {
 }
 
 // ── 공통 설정 (template.json에서 쓴 이름과 반드시 동일해야 합니다) ──────────
-const VERIFIED_ROLE_NAME = '✅ 못난이';
+const VERIFIED_ROLE_NAME = '✅ 인증됨';
 const VERIFY_CHANNEL_KEYWORD = '인증';
 const ATTENDANCE_CHANNEL_KEYWORD = '출석체크';
 const ROLE_PICKER_CHANNEL_KEYWORD = '역할-선택';
@@ -41,7 +41,7 @@ function hasEventPermission(member) {
 }
 
 const VERIFY_BUTTON_ID = 'verify_click';
-const ROLE_SELECT_ID = 'self_role_select';
+const ROLE_TOGGLE_PREFIX = 'role_toggle_';
 const GIVEAWAY_BUTTON_PREFIX = 'giveaway_join_'; // + 메시지 ID
 
 // ── 파일 기반 저장소 (재시작해도 데이터 유지) ──────────────────────────────
@@ -209,7 +209,7 @@ async function ensureRolePickerMessage(guild) {
     (m) =>
       m.author.id === client.user.id &&
       m.components.length > 0 &&
-      m.components[0].components.some((c) => c.customId === ROLE_SELECT_ID)
+      m.components[0].components.some((c) => c.customId && c.customId.startsWith(ROLE_TOGGLE_PREFIX))
   );
 
   const payload = buildRolePickerMessage();
@@ -226,57 +226,59 @@ async function ensureRolePickerMessage(guild) {
 function buildRolePickerMessage() {
   const embed = new EmbedBuilder()
     .setTitle('🎭 역할 선택')
-    .setDescription('아래 메뉴에서 원하는 역할을 선택/해제할 수 있어요. (다중 선택 가능)')
-    .setColor(0x9b59b6);
-
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId(ROLE_SELECT_ID)
-    .setPlaceholder('역할을 선택하세요')
-    .setMinValues(0)
-    .setMaxValues(selfRolesConfig.length)
-    .addOptions(
+    .setDescription('버튼을 누르면 그 역할이 켜지고, 다시 누르면 꺼져요. (각자 독립적으로 작동해요)')
+    .setColor(0x9b59b6)
+    .addFields(
       selfRolesConfig.map((entry) => ({
-        label: entry.label,
-        value: entry.roleName,
-        description: entry.description || undefined,
+        name: entry.label,
+        value: entry.description || '설명 없음',
+        inline: true,
       }))
     );
 
-  const row = new ActionRowBuilder().addComponents(menu);
-  return { embeds: [embed], components: [row] };
+  const rows = [];
+  let currentRow = new ActionRowBuilder();
+
+  selfRolesConfig.forEach((entry, index) => {
+    if (currentRow.components.length === 5) {
+      rows.push(currentRow);
+      currentRow = new ActionRowBuilder();
+    }
+    currentRow.addComponents(
+      new ButtonBuilder()
+        .setCustomId(`${ROLE_TOGGLE_PREFIX}${index}`)
+        .setLabel(entry.label)
+        .setStyle(ButtonStyle.Secondary)
+    );
+  });
+  if (currentRow.components.length > 0) rows.push(currentRow);
+
+  return { embeds: [embed], components: rows };
 }
 
-async function handleRoleSelect(interaction) {
-  const guild = interaction.guild;
-  const member = interaction.member;
-  const selected = new Set(interaction.values);
-
-  const added = [];
-  const removed = [];
-
-  for (const entry of selfRolesConfig) {
-    const role = guild.roles.cache.find((r) => r.name === entry.roleName);
-    if (!role) continue;
-
-    const hasRole = member.roles.cache.has(role.id);
-    const wantsRole = selected.has(entry.roleName);
-
-    if (wantsRole && !hasRole) {
-      await member.roles.add(role);
-      added.push(entry.label);
-    } else if (!wantsRole && hasRole) {
-      await member.roles.remove(role);
-      removed.push(entry.label);
-    }
+async function handleRoleToggle(interaction, index) {
+  const entry = selfRolesConfig[index];
+  if (!entry) {
+    return interaction.reply({ content: '이 버튼에 연결된 역할 설정을 찾을 수 없어요.', ephemeral: true });
   }
 
-  const parts = [];
-  if (added.length) parts.push(`추가됨: ${added.join(', ')}`);
-  if (removed.length) parts.push(`제거됨: ${removed.join(', ')}`);
-  await interaction.reply({
-    content: parts.length ? parts.join('\n') : '변경 사항이 없어요.',
-    ephemeral: true,
-  });
+  const guild = interaction.guild;
+  const role = guild.roles.cache.find((r) => r.name === entry.roleName);
+  if (!role) {
+    return interaction.reply({
+      content: `'${entry.roleName}' 역할을 서버에서 찾을 수 없어요.`,
+      ephemeral: true,
+    });
+  }
+
+  const member = interaction.member;
+  if (member.roles.cache.has(role.id)) {
+    await member.roles.remove(role);
+    await interaction.reply({ content: `${entry.label} 역할을 제거했어요.`, ephemeral: true });
+  } else {
+    await member.roles.add(role);
+    await interaction.reply({ content: `${entry.label} 역할을 추가했어요.`, ephemeral: true });
+  }
 }
 
 async function ensureAttendanceInfoMessage(guild) {
@@ -725,8 +727,9 @@ client.on('interactionCreate', async (interaction) => {
       const messageId = interaction.customId.slice(GIVEAWAY_BUTTON_PREFIX.length);
       return handleGiveawayJoin(interaction, messageId);
     }
-    if (interaction.isStringSelectMenu() && interaction.customId === ROLE_SELECT_ID) {
-      return handleRoleSelect(interaction);
+    if (interaction.isButton() && interaction.customId.startsWith(ROLE_TOGGLE_PREFIX)) {
+      const index = parseInt(interaction.customId.slice(ROLE_TOGGLE_PREFIX.length), 10);
+      return handleRoleToggle(interaction, index);
     }
   } catch (err) {
     console.error('interaction 처리 중 오류:', err);
