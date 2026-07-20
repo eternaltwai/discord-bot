@@ -22,5 +22,11 @@
     "roleName": "🎵 음악",
     "description": "음악 관련 소식",
     "color": "#1ABC9C"
+  },
+  {
+    "label": "👀 야한 못난이",
+    "roleName": "👀 야한 못난이",
+    "description": "NSFW 서버 접근 권한",
+    "color": "aa0fe7"
   }
 ]
