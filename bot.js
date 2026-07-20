@@ -226,7 +226,7 @@ async function ensureRolePickerMessage(guild) {
 function buildRolePickerMessage() {
   const embed = new EmbedBuilder()
     .setTitle('🎭 역할 선택')
-    .setDescription('버튼을 누르면 그 역할이 켜지고, 다시 누르면 꺼져요. (각자 독립적으로 작동해요)')
+    .setDescription('버튼을 누르면 그 역할이 켜지고, 다시 누르면 꺼져요.')
     .setColor(0x9b59b6)
     .addFields(
       selfRolesConfig.map((entry) => ({
