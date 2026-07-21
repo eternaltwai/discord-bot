@@ -24,7 +24,7 @@ if (!TOKEN) {
 }
 
 // ── 공통 설정 (template.json에서 쓴 이름과 반드시 동일해야 합니다) ──────────
-const VERIFIED_ROLE_NAME = '✅ 인증됨';
+const VERIFIED_ROLE_NAME = '✅ 못난이';
 const VERIFY_CHANNEL_KEYWORD = '인증';
 const ATTENDANCE_CHANNEL_KEYWORD = '출석체크';
 const ROLE_PICKER_CHANNEL_KEYWORD = '역할-선택';
