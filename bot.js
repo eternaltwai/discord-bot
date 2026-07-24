@@ -34,7 +34,7 @@ const TICKET_OPEN_BUTTON_ID = 'ticket_open';
 const TICKET_CLOSE_BUTTON_ID = 'ticket_close';
 
 // 이벤트(기브어웨이) 명령어를 사용할 수 있는 역할 (template.json의 역할 이름과 동일해야 함)
-const EVENT_MANAGER_ROLE_NAMES = ['🛡️ 관리자', '👑 서버장'];
+const EVENT_MANAGER_ROLE_NAMES = ['🛡️ 관리자', '👑 개못난이'];
 
 function hasEventPermission(member) {
   return member.roles.cache.some((r) => EVENT_MANAGER_ROLE_NAMES.includes(r.name));
@@ -331,7 +331,7 @@ function buildGiveawayMessage({ prize, winnerCount, endTime, participantCount, e
 async function startGiveaway(interaction) {
   if (!hasEventPermission(interaction.member)) {
     return interaction.reply({
-      content: `이벤트는 ${EVENT_MANAGER_ROLE_NAMES.join(' 또는 ')} 역할이 있어야 시작할 수 있어요.`,
+      content: `이벤트는 관리자 또는 서버장만 시작할 수 있어요.`,
       ephemeral: true,
     });
   }

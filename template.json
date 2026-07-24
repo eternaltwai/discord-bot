@@ -3,14 +3,14 @@
   "_url": "https://dicomoa.com/tools/template",
   "server": {
     "name": "내 서버",
-    "verificationLevel": 2,
+    "verificationLevel": 0,
     "defaultNotifications": 1,
     "explicitContentFilter": 1,
     "systemChannelName": "가입-인사"
   },
   "roles": [
     {
-      "name": "👑 서버장",
+      "name": "👑 개못난이",
       "color": "#FFD700",
       "hoist": true,
       "mentionable": false,

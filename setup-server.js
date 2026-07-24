@@ -91,7 +91,7 @@ client.once('ready', async () => {
   }
 
   // gate 종류별로 참조할 역할 이름 (template.json의 role 이름과 일치해야 함)
-  const ROLE_OWNER = '👑 서버장';
+  const ROLE_OWNER = '👑 개못난이';
   const ROLE_ADMIN = '🛡️ 관리자';
   const ROLE_VERIFIED = '✅ 인증됨';
 
