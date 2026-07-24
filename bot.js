@@ -34,7 +34,7 @@ const TICKET_OPEN_BUTTON_ID = 'ticket_open';
 const TICKET_CLOSE_BUTTON_ID = 'ticket_close';
 
 // 이벤트(기브어웨이) 명령어를 사용할 수 있는 역할 (template.json의 역할 이름과 동일해야 함)
-const EVENT_MANAGER_ROLE_NAMES = ['🛡️ 관리자', '👑 서버장'];
+const EVENT_MANAGER_ROLE_NAMES = ['🛡️ 관리자', '👑 개못난이'];
 
 function hasEventPermission(member) {
   return member.roles.cache.some((r) => EVENT_MANAGER_ROLE_NAMES.includes(r.name));
