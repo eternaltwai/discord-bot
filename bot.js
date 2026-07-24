@@ -24,7 +24,7 @@ if (!TOKEN) {
 }
 
 // ── 공통 설정 (template.json에서 쓴 이름과 반드시 동일해야 합니다) ──────────
-const VERIFIED_ROLE_NAME = '✅ 못난이';
+const VERIFIED_ROLE_NAME = '✅ 인증됨';
 const VERIFY_CHANNEL_KEYWORD = '인증';
 const ATTENDANCE_CHANNEL_KEYWORD = '출석체크';
 const ROLE_PICKER_CHANNEL_KEYWORD = '역할-선택';
@@ -34,7 +34,7 @@ const TICKET_OPEN_BUTTON_ID = 'ticket_open';
 const TICKET_CLOSE_BUTTON_ID = 'ticket_close';
 
 // 이벤트(기브어웨이) 명령어를 사용할 수 있는 역할 (template.json의 역할 이름과 동일해야 함)
-const EVENT_MANAGER_ROLE_NAMES = ['🛡️ 관리자', '👑 개못난이'];
+const EVENT_MANAGER_ROLE_NAMES = ['🛡️ 관리자', '👑 서버장'];
 
 function hasEventPermission(member) {
   return member.roles.cache.some((r) => EVENT_MANAGER_ROLE_NAMES.includes(r.name));
@@ -43,6 +43,7 @@ function hasEventPermission(member) {
 const VERIFY_BUTTON_ID = 'verify_click';
 const ROLE_TOGGLE_PREFIX = 'role_toggle_';
 const GIVEAWAY_BUTTON_PREFIX = 'giveaway_join_'; // + 메시지 ID
+const GIVEAWAY_LIST_BUTTON_PREFIX = 'giveaway_list_'; // + 메시지 ID
 
 // ── 파일 기반 저장소 (재시작해도 데이터 유지) ──────────────────────────────
 const DATA_DIR = __dirname;
@@ -226,7 +227,7 @@ async function ensureRolePickerMessage(guild) {
 function buildRolePickerMessage() {
   const embed = new EmbedBuilder()
     .setTitle('🎭 역할 선택')
-    .setDescription('버튼을 누르면 그 역할이 켜지고, 다시 누르면 꺼져요.')
+    .setDescription('버튼을 누르면 그 역할이 켜지고, 다시 누르면 꺼져요. (각자 독립적으로 작동해요)')
     .setColor(0x9b59b6)
     .addFields(
       selfRolesConfig.map((entry) => ({
@@ -307,7 +308,24 @@ async function ensureAttendanceInfoMessage(guild) {
 }
 
 // ── 4. 이벤트(기브어웨이) 기능 ────────────────────────────────────────────
-function buildGiveawayMessage({ prize, winnerCount, endTime, participantCount, ended }) {
+function buildGiveawayButtons(messageId, ended) {
+  const joinButton = new ButtonBuilder()
+    .setCustomId(`${GIVEAWAY_BUTTON_PREFIX}${messageId}`)
+    .setLabel('참여하기')
+    .setStyle(ButtonStyle.Success)
+    .setEmoji('🎉')
+    .setDisabled(ended);
+
+  const listButton = new ButtonBuilder()
+    .setCustomId(`${GIVEAWAY_LIST_BUTTON_PREFIX}${messageId}`)
+    .setLabel('참여자 목록')
+    .setStyle(ButtonStyle.Secondary)
+    .setEmoji('📋');
+
+  return new ActionRowBuilder().addComponents(joinButton, listButton);
+}
+
+function buildGiveawayMessage({ prize, winnerCount, endTime, participantCount, ended, messageId }) {
   const embed = new EmbedBuilder()
     .setTitle(ended ? '🎉 이벤트 종료' : '🎉 이벤트 참여')
     .setDescription(
@@ -318,20 +336,16 @@ function buildGiveawayMessage({ prize, winnerCount, endTime, participantCount, e
     )
     .setColor(ended ? 0x99aab5 : 0xe91e63);
 
-  const button = new ButtonBuilder()
-    .setCustomId(`${GIVEAWAY_BUTTON_PREFIX}placeholder`)
-    .setLabel('참여하기')
-    .setStyle(ButtonStyle.Success)
-    .setEmoji('🎉')
-    .setDisabled(ended);
-
-  return { embeds: [embed], components: [new ActionRowBuilder().addComponents(button)] };
+  return {
+    embeds: [embed],
+    components: [buildGiveawayButtons(messageId || 'placeholder', ended)],
+  };
 }
 
 async function startGiveaway(interaction) {
   if (!hasEventPermission(interaction.member)) {
     return interaction.reply({
-      content: `이벤트는 관리자 또는 서버장만 시작할 수 있어요.`,
+      content: `이벤트는 ${EVENT_MANAGER_ROLE_NAMES.join(' 또는 ')} 역할이 있어야 시작할 수 있어요.`,
       ephemeral: true,
     });
   }
@@ -346,14 +360,7 @@ async function startGiveaway(interaction) {
   const message = await interaction.channel.send(payload);
 
   // 버튼 customId에 실제 메시지 ID를 넣어서 재생성
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`${GIVEAWAY_BUTTON_PREFIX}${message.id}`)
-      .setLabel('참여하기')
-      .setStyle(ButtonStyle.Success)
-      .setEmoji('🎉')
-  );
-  await message.edit({ components: [row] });
+  await message.edit({ components: [buildGiveawayButtons(message.id, false)] });
 
   const giveaways = readJson(GIVEAWAY_FILE, {});
   giveaways[message.id] = {
@@ -392,11 +399,37 @@ async function handleGiveawayJoin(interaction, messageId) {
       endTime: giveaway.endTime,
       participantCount: giveaway.participants.length,
       ended: false,
+      messageId,
     });
     await message.edit({ embeds: payload.embeds });
   } catch (err) {
     console.error('이벤트 메시지 갱신 실패:', err);
   }
+}
+
+async function handleGiveawayList(interaction, messageId) {
+  const giveaways = readJson(GIVEAWAY_FILE, {});
+  const giveaway = giveaways[messageId];
+  if (!giveaway) {
+    return interaction.reply({ content: '이벤트 정보를 찾을 수 없어요.', ephemeral: true });
+  }
+  if (giveaway.participants.length === 0) {
+    return interaction.reply({ content: '아직 참여자가 없어요.', ephemeral: true });
+  }
+
+  const MAX_SHOWN = 50;
+  const shown = giveaway.participants.slice(0, MAX_SHOWN);
+  let description = shown.map((id, i) => `${i + 1}. <@${id}>`).join('\n');
+  if (giveaway.participants.length > MAX_SHOWN) {
+    description += `\n...외 ${giveaway.participants.length - MAX_SHOWN}명`;
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🎉 참여자 목록 (${giveaway.participants.length}명)`)
+    .setDescription(description)
+    .setColor(0xe91e63);
+
+  await interaction.reply({ embeds: [embed], ephemeral: true });
 }
 
 async function finishGiveaway(messageId, winnerCountOverride) {
@@ -420,6 +453,7 @@ async function finishGiveaway(messageId, winnerCountOverride) {
       endTime: giveaway.endTime,
       participantCount: giveaway.participants.length,
       ended: true,
+      messageId,
     });
     await message.edit(payload);
 
@@ -722,6 +756,10 @@ client.on('interactionCreate', async (interaction) => {
     }
     if (interaction.isButton() && interaction.customId === VERIFY_BUTTON_ID) {
       return handleVerifyClick(interaction);
+    }
+    if (interaction.isButton() && interaction.customId.startsWith(GIVEAWAY_LIST_BUTTON_PREFIX)) {
+      const messageId = interaction.customId.slice(GIVEAWAY_LIST_BUTTON_PREFIX.length);
+      return handleGiveawayList(interaction, messageId);
     }
     if (interaction.isButton() && interaction.customId.startsWith(GIVEAWAY_BUTTON_PREFIX)) {
       const messageId = interaction.customId.slice(GIVEAWAY_BUTTON_PREFIX.length);
